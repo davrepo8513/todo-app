@@ -1,15 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { DragDropContext, Droppable, Draggable } from 'react-beautiful-dnd';
 import { 
-  FaPlus, FaSearch, FaFilter, FaCog, FaCalendarAlt, 
-  FaFlag, FaTag, FaEdit, FaTrash, FaCheck, FaTimes,
-  FaDownload, FaUpload, FaSun, FaMoon, FaBars,
-  FaChevronDown, FaChevronUp, FaExclamationTriangle
+  FaPlus, FaSearch, FaCog, FaCalendarAlt, 
+  FaFlag, FaTag, FaEdit, FaTrash, FaTimes,
+  FaDownload, FaBars, FaUser, FaUserCheck,
+  FaClock, FaCheckCircle, FaHourglassHalf
 } from 'react-icons/fa';
 import './App.css';
 import { 
   getTodos, addTodo, updateTodo, deleteTodo, reorderTodos,
-  getCategories, addCategory, getSettings, updateSettings 
+  getCategories, getSettings, updateSettings 
 } from './utils/database';
 import { 
   formatDate, isOverdue, getPriorityColor, getCategoryColor,
@@ -26,8 +26,7 @@ function App() {
   const [filters, setFilters] = useState({
     search: '',
     category: 'all',
-    priority: 'all',
-    status: 'all'
+    priority: 'all'
   });
   const [newTodo, setNewTodo] = useState({
     title: '',
@@ -35,10 +34,20 @@ function App() {
     category: 'personal',
     priority: 'medium',
     dueDate: '',
-    tags: []
+    tags: [],
+    assignedBy: '',
+    assignedTo: '',
+    status: 'pending'
   });
   const [newTag, setNewTag] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // Task board columns
+  const columns = {
+    pending: { title: 'Pending', icon: FaClock, color: '#ffc107' },
+    inprogress: { title: 'In Progress', icon: FaHourglassHalf, color: '#17a2b8' },
+    completed: { title: 'Completed', icon: FaCheckCircle, color: '#28a745' }
+  };
 
   useEffect(() => {
     loadData();
@@ -64,7 +73,10 @@ function App() {
       category: 'personal',
       priority: 'medium',
       dueDate: '',
-      tags: []
+      tags: [],
+      assignedBy: '',
+      assignedTo: '',
+      status: 'pending'
     });
     setShowAddForm(false);
     alert('Todo added successfully!');
@@ -87,17 +99,36 @@ function App() {
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
-    const items = Array.from(filteredAndSortedTodos);
-    const [reorderedItem] = items.splice(result.source.index, 1);
-    items.splice(result.destination.index, 0, reorderedItem);
+    const { source, destination } = result;
+    
+    // If dropped in the same position, do nothing
+    if (source.droppableId === destination.droppableId && source.index === destination.index) {
+      return;
+    }
 
-    reorderTodos(items);
-    setTodos(items);
+    const todoId = result.draggableId;
+    const newStatus = destination.droppableId;
+    
+    // Update todo status based on column
+    const updates = { status: newStatus };
+    if (newStatus === 'completed') {
+      updates.completed = true;
+    } else {
+      updates.completed = false;
+    }
+
+    handleUpdateTodo(todoId, updates);
   };
 
-  const handleToggleComplete = (id) => {
-    const todo = todos.find(t => t.id === id);
-    handleUpdateTodo(id, { completed: !todo.completed });
+  const handleEditTodo = () => {
+    if (!editingTodo.title.trim()) {
+      alert('Please enter a todo title!');
+      return;
+    }
+
+    handleUpdateTodo(editingTodo.id, editingTodo);
+    setEditingTodo(null);
+    alert('Todo updated successfully!');
   };
 
   const handleAddTag = () => {
@@ -117,39 +148,42 @@ function App() {
     }));
   };
 
-  const filteredAndSortedTodos = sortTodos(
-    filterTodos(todos, filters),
-    settings.sortBy || 'order'
-  );
-
+  const filteredTodos = filterTodos(todos, filters);
   const stats = getCompletionStats(todos);
+
+  // Group todos by status
+  const todosByStatus = {
+    pending: filteredTodos.filter(todo => todo.status === 'pending' || (!todo.status && !todo.completed)),
+    inprogress: filteredTodos.filter(todo => todo.status === 'inprogress'),
+    completed: filteredTodos.filter(todo => todo.status === 'completed' || todo.completed)
+  };
 
   return (
     <div className={`app ${settings.theme === 'dark' ? 'dark-theme' : ''}`}>
       {/* Sidebar */}
       <div className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="sidebar-header">
-          <h2>📋 Advanced Todo</h2>
+          <h2>📋 Task Manager</h2>
           <button 
             className="sidebar-toggle"
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => setSidebarOpen(false)}
           >
-            <FaBars />
+            <FaTimes />
           </button>
         </div>
 
         <div className="sidebar-stats">
           <div className="stat-item">
-            <span className="stat-number">{stats.total}</span>
-            <span className="stat-label">Total</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-number">{stats.completed}</span>
-            <span className="stat-label">Completed</span>
-          </div>
-          <div className="stat-item">
-            <span className="stat-number">{stats.pending}</span>
+            <span className="stat-number">{todosByStatus.pending.length}</span>
             <span className="stat-label">Pending</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-number">{todosByStatus.inprogress.length}</span>
+            <span className="stat-label">In Progress</span>
+          </div>
+          <div className="stat-item">
+            <span className="stat-number">{todosByStatus.completed.length}</span>
+            <span className="stat-label">Completed</span>
           </div>
           <div className="stat-item">
             <span className="stat-number">{stats.overdue}</span>
@@ -186,19 +220,6 @@ function App() {
               <option value="urgent">Urgent</option>
             </select>
           </div>
-
-          <div className="filter-group">
-            <label>Status</label>
-            <select 
-              value={filters.status}
-              onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-            >
-              <option value="all">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="completed">Completed</option>
-              <option value="overdue">Overdue</option>
-            </select>
-          </div>
         </div>
 
         <div className="sidebar-actions">
@@ -223,12 +244,12 @@ function App() {
         <div className="header">
           <div className="header-left">
             <button 
-              className="sidebar-toggle mobile-only"
-              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="sidebar-toggle"
+              onClick={() => setSidebarOpen(true)}
             >
               <FaBars />
             </button>
-            <h1>My Tasks</h1>
+            <h1>Task Board</h1>
           </div>
 
           <div className="header-actions">
@@ -236,7 +257,7 @@ function App() {
               <FaSearch />
               <input
                 type="text"
-                placeholder="Search todos..."
+                placeholder="Search tasks..."
                 value={filters.search}
                 onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
               />
@@ -251,106 +272,45 @@ function App() {
           </div>
         </div>
 
-        {/* Progress Bar */}
-        <div className="progress-section">
-          <div className="progress-info">
-            <span>Progress: {stats.completionRate}%</span>
-            <span>{stats.completed} of {stats.total} completed</span>
-          </div>
-          <div className="progress-bar">
-            <div 
-              className="progress-fill"
-              style={{ width: `${stats.completionRate}%` }}
-            ></div>
-          </div>
-        </div>
+        {/* Task Board */}
+        <div className="task-board">
+          <DragDropContext onDragEnd={handleDragEnd}>
+            {Object.entries(columns).map(([columnId, column]) => (
+              <div key={columnId} className="task-column">
+                <div className="column-header">
+                  <div className="column-title">
+                    <column.icon style={{ color: column.color }} />
+                    <h3>{column.title}</h3>
+                    <span className="task-count">{todosByStatus[columnId].length}</span>
+                  </div>
+                </div>
 
-        {/* Todos List */}
-        <div className="todos-container">
-          {filteredAndSortedTodos.length === 0 ? (
-            <div className="empty-state">
-              <h3>No todos found</h3>
-              <p>Create your first todo or adjust your filters</p>
-              <button 
-                className="add-btn"
-                onClick={() => setShowAddForm(true)}
-              >
-                <FaPlus /> Add Your First Task
-              </button>
-            </div>
-          ) : (
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="todos">
-                {(provided) => (
-                  <div
-                    {...provided.droppableProps}
-                    ref={provided.innerRef}
-                    className="todos-list"
-                  >
-                    {filteredAndSortedTodos.map((todo, index) => (
-                      <Draggable key={todo.id} draggableId={todo.id} index={index}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`todo-item ${todo.completed ? 'completed' : ''} ${
-                              snapshot.isDragging ? 'dragging' : ''
-                            } ${isOverdue(todo.dueDate) && !todo.completed ? 'overdue' : ''}`}
-                          >
-                            <div className="todo-main">
-                              <div className="todo-checkbox-container">
-                                <input
-                                  type="checkbox"
-                                  checked={todo.completed}
-                                  onChange={() => handleToggleComplete(todo.id)}
-                                  className="todo-checkbox"
-                                />
-                                <span className="checkmark"></span>
-                              </div>
-
-                              <div className="todo-content">
-                                <div className="todo-header">
-                                  <h3 className="todo-title">{todo.title}</h3>
-                                  <div className="todo-meta">
-                                    <span 
-                                      className="priority-badge"
-                                      style={{ backgroundColor: getPriorityColor(todo.priority) }}
-                                    >
-                                      {todo.priority}
-                                    </span>
-                                    <span 
-                                      className="category-badge"
-                                      style={{ backgroundColor: getCategoryColor(categories, todo.category) }}
-                                    >
-                                      {categories.find(c => c.id === todo.category)?.name || 'Personal'}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {todo.description && (
-                                  <p className="todo-description">{todo.description}</p>
-                                )}
-
-                                <div className="todo-footer">
-                                  <div className="todo-info">
-                                    {todo.dueDate && (
-                                      <span className={`due-date ${isOverdue(todo.dueDate) ? 'overdue' : ''}`}>
-                                        <FaCalendarAlt /> {formatDate(todo.dueDate)}
-                                      </span>
-                                    )}
-                                    {todo.tags.length > 0 && (
-                                      <div className="tags">
-                                        {todo.tags.map(tag => (
-                                          <span key={tag} className="tag">
-                                            <FaTag /> {tag}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="todo-actions">
+                <Droppable droppableId={columnId}>
+                  {(provided, snapshot) => (
+                    <div
+                      {...provided.droppableProps}
+                      ref={provided.innerRef}
+                      className={`task-list ${snapshot.isDraggingOver ? 'drag-over' : ''}`}
+                    >
+                      {todosByStatus[columnId].length === 0 ? (
+                        <div className="empty-column">
+                          <p>No {column.title.toLowerCase()} tasks</p>
+                        </div>
+                      ) : (
+                        todosByStatus[columnId].map((todo, index) => (
+                          <Draggable key={todo.id} draggableId={todo.id} index={index}>
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.draggableProps}
+                                {...provided.dragHandleProps}
+                                className={`task-card ${snapshot.isDragging ? 'dragging' : ''} ${
+                                  isOverdue(todo.dueDate) && !todo.completed ? 'overdue' : ''
+                                }`}
+                              >
+                                <div className="task-header">
+                                  <h4 className="task-title">{todo.title}</h4>
+                                  <div className="task-actions">
                                     <button
                                       className="action-btn edit"
                                       onClick={() => setEditingTodo(todo)}
@@ -365,18 +325,70 @@ function App() {
                                     </button>
                                   </div>
                                 </div>
+
+                                {todo.description && (
+                                  <p className="task-description">{todo.description}</p>
+                                )}
+
+                                <div className="task-meta">
+                                  <div className="task-badges">
+                                    <span 
+                                      className="priority-badge"
+                                      style={{ backgroundColor: getPriorityColor(todo.priority) }}
+                                    >
+                                      {todo.priority}
+                                    </span>
+                                    <span 
+                                      className="category-badge"
+                                      style={{ backgroundColor: getCategoryColor(categories, todo.category) }}
+                                    >
+                                      {categories.find(c => c.id === todo.category)?.name || 'Personal'}
+                                    </span>
+                                  </div>
+
+                                  {todo.dueDate && (
+                                    <div className={`due-date ${isOverdue(todo.dueDate) ? 'overdue' : ''}`}>
+                                      <FaCalendarAlt /> {formatDate(todo.dueDate)}
+                                    </div>
+                                  )}
+
+                                  {(todo.assignedBy || todo.assignedTo) && (
+                                    <div className="assignment-info">
+                                      {todo.assignedBy && (
+                                        <div className="assigned-by">
+                                          <FaUser /> By: {todo.assignedBy}
+                                        </div>
+                                      )}
+                                      {todo.assignedTo && (
+                                        <div className="assigned-to">
+                                          <FaUserCheck /> To: {todo.assignedTo}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  {todo.tags && todo.tags.length > 0 && (
+                                    <div className="task-tags">
+                                      {todo.tags.map(tag => (
+                                        <span key={tag} className="tag">
+                                          <FaTag /> {tag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            </DragDropContext>
-          )}
+                            )}
+                          </Draggable>
+                        ))
+                      )}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </div>
+            ))}
+          </DragDropContext>
         </div>
       </div>
 
@@ -439,14 +451,52 @@ function App() {
                 </div>
               </div>
 
-              <div className="form-group">
-                <label>Due Date</label>
-                <input
-                  type="date"
-                  value={newTodo.dueDate}
-                  onChange={(e) => setNewTodo(prev => ({ ...prev, dueDate: e.target.value }))}
-                />
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Status</label>
+                  <select
+                    value={newTodo.status}
+                    onChange={(e) => setNewTodo(prev => ({ ...prev, status: e.target.value }))}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="inprogress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Due Date</label>
+                  <input
+                    type="date"
+                    value={newTodo.dueDate}
+                    onChange={(e) => setNewTodo(prev => ({ ...prev, dueDate: e.target.value }))}
+                  />
+                </div>
               </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Assigned By</label>
+                  <input
+                    type="text"
+                    value={newTodo.assignedBy}
+                    onChange={(e) => setNewTodo(prev => ({ ...prev, assignedBy: e.target.value }))}
+                    placeholder="Who assigned this task?"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Assigned To</label>
+                  <input
+                    type="text"
+                    value={newTodo.assignedTo}
+                    onChange={(e) => setNewTodo(prev => ({ ...prev, assignedTo: e.target.value }))}
+                    placeholder="Who is responsible for this task?"
+                  />
+                </div>
+              </div>
+
+
 
               <div className="form-group">
                 <label>Tags</label>
@@ -487,6 +537,146 @@ function App() {
                 onClick={handleAddTodo}
               >
                 Add Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Todo Modal */}
+      {editingTodo && (
+        <div className="modal-overlay" onClick={() => setEditingTodo(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2>Edit Task</h2>
+              <button onClick={() => setEditingTodo(null)}>
+                <FaTimes />
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Title *</label>
+                <input
+                  type="text"
+                  value={editingTodo.title}
+                  onChange={(e) => setEditingTodo(prev => ({ ...prev, title: e.target.value }))}
+                  placeholder="Enter task title..."
+                />
+              </div>
+
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={editingTodo.description}
+                  onChange={(e) => setEditingTodo(prev => ({ ...prev, description: e.target.value }))}
+                  placeholder="Enter task description..."
+                  rows="3"
+                />
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Category</label>
+                  <select
+                    value={editingTodo.category}
+                    onChange={(e) => setEditingTodo(prev => ({ ...prev, category: e.target.value }))}
+                  >
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Priority</label>
+                  <select
+                    value={editingTodo.priority}
+                    onChange={(e) => setEditingTodo(prev => ({ ...prev, priority: e.target.value }))}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Status</label>
+                  <select
+                    value={editingTodo.status || 'pending'}
+                    onChange={(e) => setEditingTodo(prev => ({ ...prev, status: e.target.value }))}
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="inprogress">In Progress</option>
+                    <option value="completed">Completed</option>
+                  </select>
+                </div>
+
+                <div className="form-group">
+                  <label>Due Date</label>
+                  <input
+                    type="date"
+                    value={editingTodo.dueDate}
+                    onChange={(e) => setEditingTodo(prev => ({ ...prev, dueDate: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="form-row">
+                <div className="form-group">
+                  <label>Assigned By</label>
+                  <input
+                    type="text"
+                    value={editingTodo.assignedBy || ''}
+                    onChange={(e) => setEditingTodo(prev => ({ ...prev, assignedBy: e.target.value }))}
+                    placeholder="Who assigned this task?"
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Assigned To</label>
+                  <input
+                    type="text"
+                    value={editingTodo.assignedTo || ''}
+                    onChange={(e) => setEditingTodo(prev => ({ ...prev, assignedTo: e.target.value }))}
+                    placeholder="Who is responsible for this task?"
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label>Tags</label>
+                <div className="tags-list">
+                  {(editingTodo.tags || []).map(tag => (
+                    <span key={tag} className="tag">
+                      {tag}
+                      <button onClick={() => setEditingTodo(prev => ({
+                        ...prev,
+                        tags: prev.tags.filter(t => t !== tag)
+                      }))}>
+                        <FaTimes />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="modal-footer">
+              <button 
+                className="btn secondary"
+                onClick={() => setEditingTodo(null)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn primary"
+                onClick={handleEditTodo}
+              >
+                Update Task
               </button>
             </div>
           </div>
@@ -551,10 +741,10 @@ function App() {
         </div>
       )}
 
-      {/* Mobile Sidebar Overlay */}
+      {/* Sidebar Overlay */}
       {sidebarOpen && (
         <div 
-          className="sidebar-overlay mobile-only"
+          className="sidebar-overlay"
           onClick={() => setSidebarOpen(false)}
         />
       )}
